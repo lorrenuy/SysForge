@@ -1,15 +1,15 @@
 #!/bin/bash
 # modules/core.sh
-# Core functies, variabelen en logging
+# Core functies, variabelen, logging en UI
 
 # --- 1. GLOBALE VARIABELEN ---
 BOLD='\033[1m'; RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
 
-# Bepaal de echte gebruiker (ook als we sudo gebruiken)
+# Bepaal de echte gebruiker
 if [ $SUDO_USER ]; then REAL_USER=$SUDO_USER; else REAL_USER=$(whoami); fi
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 
-# Log locaties (Cruciaal voor de errors die je zag!)
+# Log locaties
 LOG_DIR="/var/log/sysforge"
 LOG_FILE="$LOG_DIR/sysforge.log"
 TEMP_TASK_LOG="/tmp/sysforge_task.log"
@@ -21,15 +21,20 @@ is_live_environment() {
 }
 
 prepare_environment() {
-    # Maak log mappen aan
+    # Maak log mappen aan (cruciaal dat dit als eerste gebeurt)
     if ! is_live_environment; then
-        if [ ! -d "$LOG_DIR" ]; then mkdir -p "$LOG_DIR"; chown "$REAL_USER":"$REAL_USER" "$LOG_DIR"; fi
-        if [ ! -f "$LOG_FILE" ]; then touch "$LOG_FILE"; chown "$REAL_USER":"$REAL_USER" "$LOG_FILE"; fi
+        if [ ! -d "$LOG_DIR" ]; then 
+            mkdir -p "$LOG_DIR"
+            chown "$REAL_USER":"$REAL_USER" "$LOG_DIR"
+        fi
+        if [ ! -f "$LOG_FILE" ]; then 
+            touch "$LOG_FILE"
+            chown "$REAL_USER":"$REAL_USER" "$LOG_FILE"
+        fi
         chmod 666 "$LOG_FILE"
     else
         LOG_FILE="/tmp/sysforge_live.log"
     fi
-    # Maak temp log bestand aan
     touch "$TEMP_TASK_LOG"
     chmod 666 "$TEMP_TASK_LOG"
 }
@@ -38,6 +43,9 @@ prepare_environment() {
 log_action() { 
     local m="$1"
     local t=$(date "+%Y-%m-%d %H:%M:%S")
+    # Veiligheidscheck: bestaat de map wel? Zo nee, maak hem stilzwijgend aan.
+    if [ ! -d "$LOG_DIR" ] && ! is_live_environment; then mkdir -p "$LOG_DIR"; fi
+    
     if ! is_live_environment; then echo "[$t] $m" >> "$LOG_FILE"; fi
 }
 
@@ -45,44 +53,22 @@ execute_with_progress() {
     local DESC="$1"
     local CMD="$2"
     
-    # Hier ging het mis: TEMP_TASK_LOG moet bestaan!
     eval "$CMD" > "$TEMP_TASK_LOG" 2>&1 & 
     local PID=$!
-    
-    tput civis # Cursor verbergen
-    local width=20
-    local i=0
-    local direction=1
-    local chars="<=>"
+    tput civis
+    local width=20; local i=0; local direction=1; local chars="<=>"
 
     while ps -p $PID > /dev/null; do
-        local bar=""
-        for ((j=0; j<width; j++)); do 
-            if [ $j -eq $i ]; then bar+="$chars"; else bar+=" "; fi
-        done
-        bar="${bar:0:width}"
-        printf "\r   [${BLUE}%s${NC}] %s" "$bar" "$DESC"
-        
-        if [ $direction -eq 1 ]; then 
-            ((i++)); if [ $i -ge $((width-3)) ]; then direction=-1; fi
-        else 
-            ((i--)); if [ $i -le 0 ]; then direction=1; fi
-        fi
-        sleep 0.1
+        local bar=""; for ((j=0; j<width; j++)); do if [ $j -eq $i ]; then bar+="$chars"; else bar+=" "; fi; done
+        bar="${bar:0:width}"; printf "\r   [${BLUE}%s${NC}] %s" "$bar" "$DESC"
+        if [ $direction -eq 1 ]; then ((i++)); if [ $i -ge $((width-3)) ]; then direction=-1; fi; else ((i--)); if [ $i -le 0 ]; then direction=1; fi; fi; sleep 0.1
     done
-    
-    tput cnorm # Cursor terug
-    wait $PID
-    local EC=$?
-    printf "\r\033[K" # Regel wissen
+    tput cnorm; wait $PID; local EC=$?; printf "\r\033[K"
 
     if [ $EC -eq 0 ]; then 
-        echo -e "   ${GREEN}✅ $DESC${NC}"
-        log_action "OK: $DESC"
+        echo -e "   ${GREEN}✅ $DESC${NC}"; log_action "OK: $DESC"
     else 
         echo -e "   ${RED}❌ $DESC${NC}"
-        # Toon de laatste paar regels van de foutmelding voor debuggen
-        tail -n 2 "$TEMP_TASK_LOG" | sed 's/^/      -> /'
         log_action "FAIL: $DESC"
         return 1
     fi
@@ -102,35 +88,19 @@ check_disk_space() {
 
 detect_distro() {
     if [ -f /etc/os-release ]; then . /etc/os-release; DISTRO=$ID; LIKE=$ID_LIKE; fi
-    
-    # Specifieke check voor MX Linux (vaak gebaseerd op Debian)
-    if [[ "$DISTRO" == "mx" ]]; then
-        DISTRO="mx"
-        SYSTEM_TYPE="debian"
-    fi
+    if [[ "$DISTRO" == "mx" ]]; then DISTRO="mx"; SYSTEM_TYPE="debian"; fi # MX Fix
 
     if [[ "$DISTRO" == "debian" || "$LIKE" == *"debian"* || "$LIKE" == *"ubuntu"* || "$DISTRO" == "mx" ]]; then 
-        SYSTEM_TYPE="debian"
-        export DEBIAN_FRONTEND=noninteractive
+        SYSTEM_TYPE="debian"; export DEBIAN_FRONTEND=noninteractive
         CMD_UPDATE="sudo apt update -qq && sudo apt dist-upgrade -y"
-        CMD_INSTALL="sudo apt install -y"
-        CMD_REMOVE="sudo apt remove -y"
-        CMD_CLEAN="sudo apt autoremove -y && sudo apt autoclean"
-        
+        CMD_INSTALL="sudo apt install -y"; CMD_REMOVE="sudo apt remove -y"; CMD_CLEAN="sudo apt autoremove -y && sudo apt autoclean"
         if command -v nala &>/dev/null; then 
-            CMD_UPDATE="sudo nala update && sudo nala upgrade -y"
-            CMD_INSTALL="sudo nala install -y"
-            CMD_REMOVE="sudo nala remove -y"
-            CMD_CLEAN="sudo nala autoremove -y && sudo nala clean"
+            CMD_UPDATE="sudo nala update && sudo nala upgrade -y"; CMD_INSTALL="sudo nala install -y"; CMD_REMOVE="sudo nala remove -y"; CMD_CLEAN="sudo nala autoremove -y && sudo nala clean"
         fi
         PKG_FLATPAK="flatpak"
     elif [[ "$DISTRO" == "arch" || "$LIKE" == *"arch"* ]]; then 
-        SYSTEM_TYPE="arch"
-        CMD_UPDATE="sudo pacman -Syu --noconfirm"
-        CMD_INSTALL="sudo pacman -S --noconfirm --needed"
-        CMD_REMOVE="sudo pacman -Rs --noconfirm"
-        CMD_CLEAN="sudo paccache -rk2"
-        PKG_FLATPAK="flatpak"
+        SYSTEM_TYPE="arch"; CMD_UPDATE="sudo pacman -Syu --noconfirm"; CMD_INSTALL="sudo pacman -S --noconfirm --needed"
+        CMD_REMOVE="sudo pacman -Rs --noconfirm"; CMD_CLEAN="sudo paccache -rk2"; PKG_FLATPAK="flatpak"
     fi
 }
 
@@ -144,8 +114,12 @@ detect_desktop_environment() {
 check_internet() {
     while true; do
         if ping -q -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then return 0; fi
-        echo -e "${RED}   Geen internet.${NC}"
-        read -p "   Probeer opnieuw (R/x): " RETRY
-        if [[ "$RETRY" =~ ^[xX] ]]; then exit 1; fi
+        echo -e "${RED}   Geen internet.${NC}"; read -p "   Probeer opnieuw (R/x): " RETRY; if [[ "$RETRY" =~ ^[xX] ]]; then exit 1; fi
     done
 }
+
+# --- 5. UI FUNCTIES (Was missing!) ---
+draw_header() { 
+    clear; if is_live_environment; then echo -e "${RED}${BOLD}   >>> LIVE OMGEVING <<<${NC}"; 
+    else 
+        if [ "$USE_CLOUD_UPLOAD" = true ]; then C_STAT="${GREEN}[AAN]${NC}"; else C_STAT="${RED}[UIT]${
