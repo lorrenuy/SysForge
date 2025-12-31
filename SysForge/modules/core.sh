@@ -62,4 +62,51 @@ draw_header() {
         if [ "$USE_CLOUD_UPLOAD" = true ]; then C_STAT="${GREEN}[AAN]${NC}"; else C_STAT="${RED}[UIT]${NC}"; fi
         echo -e "${CYAN}${BOLD}   SysForge v${SCRIPT_VERSION}${NC} | ${BLUE}$DISTRO${NC} | ${BLUE}$CURRENT_DE${NC} | Cloud: $C_STAT"; echo -e "${CYAN}   ====================================================${NC}"
     fi 
+    
+    # --- INTEGRITY CHECKER ---
+check_version_integrity() {
+    # Alleen uitvoeren als we niet in LIVE mode zitten en Git hebben
+    if is_live_environment || ! command -v git &> /dev/null; then return; fi
+    
+    # Check of we in een git map zitten
+    if [ ! -d "$BASE_DIR/.git" ]; then return; fi
+
+    echo -e "${BLUE}ℹ️  Versiecontrole...${NC}"
+    
+    # Haal info op van GitHub zonder bestanden te veranderen
+    cd "$BASE_DIR"
+    git fetch origin main --quiet 2>/dev/null
+
+    # 1. Check: Lopen we achter op GitHub?
+    LOCAL_HASH=$(git rev-parse HEAD)
+    REMOTE_HASH=$(git rev-parse origin/main)
+    
+    if [ "$LOCAL_HASH" != "$REMOTE_HASH" ]; then
+        echo -e "${YELLOW}⚠️  LET OP: Je script is verouderd!${NC}"
+        read -p "   Nu updaten naar de laatste GitHub versie? (J/n): " UPD
+        if [[ "$UPD" =~ ^[jJ] ]] || [ -z "$UPD" ]; then
+            echo -e "${BLUE}   Updating...${NC}"
+            # Forceer update (overschrijft conflicten) om errors te voorkomen
+            git reset --hard origin/main
+            git pull
+            echo -e "${GREEN}✅ Geüpdatet! Het script herstart nu.${NC}"
+            sleep 1
+            exec "$0" # Herstart het script
+        fi
+    else
+        echo -e "${GREEN}✅ Script is up-to-date.${NC}"
+    fi
+
+    # 2. Check: Hebben we lokaal geknoeid? (Modified files)
+    if [ -n "$(git status --porcelain)" ]; then
+        echo -e "${RED}⚠️  WAARSCHUWING: Je hebt lokale bestanden aangepast!${NC}"
+        echo "   Deze wijzigingen staan NIET op GitHub en kunnen updates blokkeren."
+        read -p "   Wil je deze lokale wijzigingen ongedaan maken (Reset)? (j/N): " RST
+        if [[ "$RST" =~ ^[jJ] ]]; then
+            git reset --hard
+            echo -e "${GREEN}✅ Lokale wijzigingen gewist.${NC}"
+        fi
+    fi
+    echo ""
+}
 }
