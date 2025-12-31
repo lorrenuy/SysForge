@@ -3,10 +3,20 @@
 # Core functies, variabelen, logging en UI
 
 # --- 1. GLOBALE VARIABELEN ---
-BOLD='\033[1m'; RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
+BOLD='\033[1m'
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
 
 # Bepaal de echte gebruiker
-if [ $SUDO_USER ]; then REAL_USER=$SUDO_USER; else REAL_USER=$(whoami); fi
+if [ "$SUDO_USER" ]; then 
+    REAL_USER=$SUDO_USER
+else 
+    REAL_USER=$(whoami)
+fi
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 
 # Log locaties
@@ -16,8 +26,10 @@ TEMP_TASK_LOG="/tmp/sysforge_task.log"
 
 # --- 2. OMGEVING PREPAREREN ---
 is_live_environment() { 
-    if grep -qE "boot=casper|boot=live|live-media" /proc/cmdline; then return 0; fi
-    return 1; 
+    if grep -qE "boot=casper|boot=live|live-media" /proc/cmdline; then 
+        return 0
+    fi
+    return 1
 }
 
 prepare_environment() {
@@ -44,9 +56,13 @@ log_action() {
     local m="$1"
     local t=$(date "+%Y-%m-%d %H:%M:%S")
     # Veiligheidscheck: bestaat de map wel? Zo nee, maak hem stilzwijgend aan.
-    if [ ! -d "$LOG_DIR" ] && ! is_live_environment; then mkdir -p "$LOG_DIR"; fi
+    if [ ! -d "$LOG_DIR" ] && ! is_live_environment; then 
+        mkdir -p "$LOG_DIR"
+    fi
     
-    if ! is_live_environment; then echo "[$t] $m" >> "$LOG_FILE"; fi
+    if ! is_live_environment; then 
+        echo "[$t] $m" >> "$LOG_FILE"
+    fi
 }
 
 execute_with_progress() {
@@ -56,17 +72,40 @@ execute_with_progress() {
     eval "$CMD" > "$TEMP_TASK_LOG" 2>&1 & 
     local PID=$!
     tput civis
-    local width=20; local i=0; local direction=1; local chars="<=>"
+    local width=20
+    local i=0
+    local direction=1
+    local chars="<=>"
 
     while ps -p $PID > /dev/null; do
-        local bar=""; for ((j=0; j<width; j++)); do if [ $j -eq $i ]; then bar+="$chars"; else bar+=" "; fi; done
-        bar="${bar:0:width}"; printf "\r   [${BLUE}%s${NC}] %s" "$bar" "$DESC"
-        if [ $direction -eq 1 ]; then ((i++)); if [ $i -ge $((width-3)) ]; then direction=-1; fi; else ((i--)); if [ $i -le 0 ]; then direction=1; fi; fi; sleep 0.1
+        local bar=""
+        for ((j=0; j<width; j++)); do 
+            if [ $j -eq $i ]; then 
+                bar+="$chars"
+            else 
+                bar+=" "
+            fi
+        done
+        bar="${bar:0:width}"
+        printf "\r   [${BLUE}%s${NC}] %s" "$bar" "$DESC"
+        
+        if [ $direction -eq 1 ]; then 
+            ((i++))
+            if [ $i -ge $((width-3)) ]; then direction=-1; fi
+        else 
+            ((i--))
+            if [ $i -le 0 ]; then direction=1; fi
+        fi
+        sleep 0.1
     done
-    tput cnorm; wait $PID; local EC=$?; printf "\r\033[K"
+    tput cnorm
+    wait $PID
+    local EC=$?
+    printf "\r\033[K"
 
     if [ $EC -eq 0 ]; then 
-        echo -e "   ${GREEN}✅ $DESC${NC}"; log_action "OK: $DESC"
+        echo -e "   ${GREEN}✅ $DESC${NC}"
+        log_action "OK: $DESC"
     else 
         echo -e "   ${RED}❌ $DESC${NC}"
         log_action "FAIL: $DESC"
@@ -82,44 +121,105 @@ msg_err() { echo -e "${RED}❌ $1${NC}"; }
 
 check_disk_space() { 
     local f=$(df -BG / | awk 'NR==2 {print $4}' | sed 's/G//')
-    if [ "$f" -lt "$MIN_FREE_SPACE_GB" ]; then msg_err "Schijf vol ($f GB)"; return 1; fi
-    return 0; 
+    if [ "$f" -lt "$MIN_FREE_SPACE_GB" ]; then 
+        msg_err "Schijf vol ($f GB)"
+        return 1
+    fi
+    return 0
 }
 
 detect_distro() {
-    if [ -f /etc/os-release ]; then . /etc/os-release; DISTRO=$ID; LIKE=$ID_LIKE; fi
-    if [[ "$DISTRO" == "mx" ]]; then DISTRO="mx"; SYSTEM_TYPE="debian"; fi # MX Fix
+    if [ -f /etc/os-release ]; then 
+        . /etc/os-release
+        DISTRO=$ID
+        LIKE=$ID_LIKE
+    fi
+    
+    # MX Fix
+    if [[ "$DISTRO" == "mx" ]]; then 
+        DISTRO="mx"
+        SYSTEM_TYPE="debian"
+    fi
 
     if [[ "$DISTRO" == "debian" || "$LIKE" == *"debian"* || "$LIKE" == *"ubuntu"* || "$DISTRO" == "mx" ]]; then 
-        SYSTEM_TYPE="debian"; export DEBIAN_FRONTEND=noninteractive
+        SYSTEM_TYPE="debian"
+        export DEBIAN_FRONTEND=noninteractive
         CMD_UPDATE="sudo apt update -qq && sudo apt dist-upgrade -y"
-        CMD_INSTALL="sudo apt install -y"; CMD_REMOVE="sudo apt remove -y"; CMD_CLEAN="sudo apt autoremove -y && sudo apt autoclean"
+        CMD_INSTALL="sudo apt install -y"
+        CMD_REMOVE="sudo apt remove -y"
+        CMD_CLEAN="sudo apt autoremove -y && sudo apt autoclean"
+        
         if command -v nala &>/dev/null; then 
-            CMD_UPDATE="sudo nala update && sudo nala upgrade -y"; CMD_INSTALL="sudo nala install -y"; CMD_REMOVE="sudo nala remove -y"; CMD_CLEAN="sudo nala autoremove -y && sudo nala clean"
+            CMD_UPDATE="sudo nala update && sudo nala upgrade -y"
+            CMD_INSTALL="sudo nala install -y"
+            CMD_REMOVE="sudo nala remove -y"
+            CMD_CLEAN="sudo nala autoremove -y && sudo nala clean"
         fi
         PKG_FLATPAK="flatpak"
     elif [[ "$DISTRO" == "arch" || "$LIKE" == *"arch"* ]]; then 
-        SYSTEM_TYPE="arch"; CMD_UPDATE="sudo pacman -Syu --noconfirm"; CMD_INSTALL="sudo pacman -S --noconfirm --needed"
-        CMD_REMOVE="sudo pacman -Rs --noconfirm"; CMD_CLEAN="sudo paccache -rk2"; PKG_FLATPAK="flatpak"
+        SYSTEM_TYPE="arch"
+        CMD_UPDATE="sudo pacman -Syu --noconfirm"
+        CMD_INSTALL="sudo pacman -S --noconfirm --needed"
+        CMD_REMOVE="sudo pacman -Rs --noconfirm"
+        CMD_CLEAN="sudo paccache -rk2"
+        PKG_FLATPAK="flatpak"
     fi
 }
 
 detect_desktop_environment() { 
-    if [ "$XDG_CURRENT_DESKTOP" != "" ]; then CURRENT_DE="$XDG_CURRENT_DESKTOP"; 
-    elif [ -f /usr/bin/gnome-shell ]; then CURRENT_DE="GNOME"; 
-    elif [ -f /usr/bin/plasmashell ]; then CURRENT_DE="KDE"; 
-    elif [ -f /usr/bin/xfce4-session ]; then CURRENT_DE="XFCE"; fi
+    if [ "$XDG_CURRENT_DESKTOP" != "" ]; then 
+        CURRENT_DE="$XDG_CURRENT_DESKTOP"
+    elif [ -f /usr/bin/gnome-shell ]; then 
+        CURRENT_DE="GNOME"
+    elif [ -f /usr/bin/plasmashell ]; then 
+        CURRENT_DE="KDE"
+    elif [ -f /usr/bin/xfce4-session ]; then 
+        CURRENT_DE="XFCE"
+    fi
 }
 
 check_internet() {
     while true; do
         if ping -q -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then return 0; fi
-        echo -e "${RED}   Geen internet.${NC}"; read -p "   Probeer opnieuw (R/x): " RETRY; if [[ "$RETRY" =~ ^[xX] ]]; then exit 1; fi
+        echo -e "${RED}   Geen internet.${NC}"
+        read -p "   Probeer opnieuw (R/x): " RETRY
+        if [[ "$RETRY" =~ ^[xX] ]]; then exit 1; fi
     done
 }
 
-# --- 5. UI FUNCTIES (Was missing!) ---
+# --- 5. UI FUNCTIES ---
 draw_header() { 
-    clear; if is_live_environment; then echo -e "${RED}${BOLD}   >>> LIVE OMGEVING <<<${NC}"; 
+    clear
+    if is_live_environment; then 
+        echo -e "${RED}${BOLD}   >>> LIVE OMGEVING <<<${NC}"
     else 
-        if [ "$USE_CLOUD_UPLOAD" = true ]; then C_STAT="${GREEN}[AAN]${NC}"; else C_STAT="${RED}[UIT]${
+        if [ "$USE_CLOUD_UPLOAD" = true ]; then C_STAT="${GREEN}[AAN]${NC}"; else C_STAT="${RED}[UIT]${NC}"; fi
+        echo -e "${CYAN}${BOLD}   SysForge v${SCRIPT_VERSION}${NC} | ${BLUE}$DISTRO${NC} | ${BLUE}$CURRENT_DE${NC} | Cloud: $C_STAT"
+        echo -e "${CYAN}   ====================================================${NC}"
+    fi 
+}
+
+# --- 6. INTEGRITY CHECK ---
+check_version_integrity() {
+    if is_live_environment || ! command -v git &> /dev/null; then return; fi
+    if [ ! -d "$BASE_DIR/.git" ]; then return; fi
+
+    echo -e "${BLUE}ℹ️  Versiecontrole...${NC}"
+    cd "$BASE_DIR"
+    git fetch origin main --quiet 2>/dev/null
+    
+    LOCAL_HASH=$(git rev-parse HEAD)
+    REMOTE_HASH=$(git rev-parse origin/main)
+    
+    if [ "$LOCAL_HASH" != "$REMOTE_HASH" ]; then
+        echo -e "${YELLOW}⚠️  Script verouderd. Updaten? (J/n)${NC}"
+        read -p "   > " UPD
+        if [[ "$UPD" =~ ^[jJ] ]] || [ -z "$UPD" ]; then
+            git reset --hard origin/main
+            git pull
+            echo "Geüpdatet."
+            sleep 1
+            exec "$0"
+        fi
+    fi
+}
