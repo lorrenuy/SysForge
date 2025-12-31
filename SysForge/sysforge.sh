@@ -29,11 +29,18 @@ load_module "$MODULE_DIR/cloud.sh"
 load_module "$MODULE_DIR/advanced.sh"
 
 # 3. Initialisatie (Opstart checks)
-log_action "Start"
 detect_distro
 detect_desktop_environment
 check_internet
+
+# EERST de omgeving klaarmaken (maakt logs map aan)
 prepare_environment
+
+# DAN PAS loggen (anders error: map bestaat niet)
+log_action "Start"
+
+# DAN de versie check
+check_version_integrity
 
 # --- VERSIE CONTROLE (FAIL-SAFE) ---
 # Checkt of GitHub nieuwere code heeft en waarschuwt bij lokale wijzigingen
