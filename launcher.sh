@@ -1,16 +1,15 @@
 #!/bin/bash
-# SysForge Launcher v0.91 (Fixed: Folder Unwrapping)
+# SysForge Launcher v0.92 (Auto-Unpack Fix)
 
 REPO_URL="https://github.com/lorrenuy/SysForge.git" 
 INSTALL_DIR="/opt/SysForge"
-TEMP_DIR="/tmp/sysforge_git_temp"
-MAIN_SCRIPT="$INSTALL_DIR/sysforge.sh"
-GREEN='\033[0;32m'; BLUE='\033[0;34m'; NC='\033[0m'
+TEMP_GIT_DIR="/tmp/sysforge_git_temp"
+GREEN='\033[0;32m'; BLUE='\033[0;34m'; RED='\033[0;31m'; NC='\033[0m'
 
-echo -e "${BLUE}>>> SysForge Launcher & Updater${NC}"
+echo -e "${BLUE}>>> SysForge Installer & Launcher${NC}"
 
 # 1. Root Check
-if [ "$EUID" -ne 0 ]; then echo "FAIL: Voer dit uit als root (sudo)."; exit 1; fi
+if [ "$EUID" -ne 0 ]; then echo "FAIL: Run as root."; exit 1; fi
 
 # 2. Git Check
 if ! command -v git &> /dev/null; then
@@ -19,37 +18,41 @@ if ! command -v git &> /dev/null; then
     elif [ -f /etc/arch-release ]; then pacman -S --noconfirm git; fi
 fi
 
+# 3. Downloaden (Altijd vers via een tijdelijke map)
 echo -e "${GREEN}>>> Downloaden van GitHub...${NC}"
+if [ -d "$TEMP_GIT_DIR" ]; then rm -rf "$TEMP_GIT_DIR"; fi
+git clone --quiet "$REPO_URL" "$TEMP_GIT_DIR"
 
-# 3. Downloaden naar tijdelijke map (om dubbele mappen te voorkomen)
-if [ -d "$TEMP_DIR" ]; then rm -rf "$TEMP_DIR"; fi
-git clone --quiet "$REPO_URL" "$TEMP_DIR"
-
-# 4. Installeren (De 'SysForge' map uit de temp map verplaatsen naar /opt/)
+# 4. Installeren (De 'SysForge' submap eruit vissen)
 echo -e "${GREEN}>>> Installeren...${NC}"
 
-# Oude versie verwijderen
+# Oude installatie verwijderen om conflicten te voorkomen
 if [ -d "$INSTALL_DIR" ]; then rm -rf "$INSTALL_DIR"; fi
 
-# De submap 'SysForge' uit de repo pakken en op de juiste plek zetten
-if [ -d "$TEMP_DIR/SysForge" ]; then
-    mv "$TEMP_DIR/SysForge" "/opt/"
+# HIER ZIT DE FIX:
+# We kijken of de repo een submap 'SysForge' heeft (de nieuwe structuur)
+if [ -d "$TEMP_GIT_DIR/SysForge" ]; then
+    # Ja: Verplaats alleen die submap naar /opt/SysForge
+    mv "$TEMP_GIT_DIR/SysForge" "$INSTALL_DIR"
 else
-    # Fallback: Als de repo structuur ooit verandert en bestanden direct in de root staan
-    mv "$TEMP_DIR" "$INSTALL_DIR"
+    # Nee: De repo is plat (fallback), verplaats alles
+    mv "$TEMP_GIT_DIR" "$INSTALL_DIR"
 fi
 
-# Opruimen
-rm -rf "$TEMP_DIR"
+# Opruimen temp
+rm -rf "$TEMP_GIT_DIR"
 
-# 5. Rechten & Starten
+# 5. Starten
+MAIN_SCRIPT="$INSTALL_DIR/sysforge.sh"
+
 if [ -f "$MAIN_SCRIPT" ]; then
     chmod +x "$MAIN_SCRIPT" "$INSTALL_DIR/modules/"*.sh
     echo -e "${BLUE}>>> Starten...${NC}"
+    echo ""
     bash "$MAIN_SCRIPT"
 else
-    echo -e "${RED}FOUT: Kan $MAIN_SCRIPT niet vinden na installatie.${NC}"
-    echo "Controleer de mappenstructuur op GitHub."
+    echo -e "${RED}CRITIAL ERROR: Kan $MAIN_SCRIPT niet vinden!${NC}"
+    echo "Huidige inhoud van /opt/:"
     ls -R /opt/SysForge
     exit 1
 fi
